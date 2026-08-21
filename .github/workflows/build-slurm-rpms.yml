@@ -69,7 +69,6 @@ jobs:
             rpm-build \
             rpmdevtools \
             createrepo_c \
-            curl \
             wget \
             git \
             tar \
