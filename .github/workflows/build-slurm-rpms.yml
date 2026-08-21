@@ -1,0 +1,95 @@
+name: Build Slurm RPMs
+
+on:
+  workflow_dispatch:
+    inputs:
+      slurm_version:
+        description: "Slurm version, e.g. 26.05.3"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-rocky9:
+    name: Build Slurm ${{ inputs.slurm_version }} RPMs on Rocky 9
+    runs-on: ubuntu-latest
+
+    container:
+      image: rockylinux:9
+
+    steps:
+      - name: Install build tooling
+        run: |
+          dnf -y install dnf-plugins-core epel-release
+          dnf config-manager --set-enabled crb || true
+          dnf -y groupinstall "Development Tools"
+          dnf -y install \
+            rpm-build rpmdevtools createrepo_c wget curl git \
+            gcc gcc-c++ make autoconf automake libtool \
+            openssl-devel pam-devel readline-devel ncurses-devel \
+            perl python3 python3-devel \
+            munge munge-devel \
+            hwloc hwloc-devel \
+            numactl numactl-devel \
+            lua lua-devel \
+            rrdtool-devel \
+            mariadb-devel \
+            json-c-devel \
+            dbus-devel \
+            gtk2-devel \
+            man2html \
+            libibmad-devel libibumad-devel \
+            freeipmi-devel \
+            http-parser-devel \
+            libjwt-devel || true
+
+      - name: Prepare rpmbuild tree
+        run: |
+          rpmdev-setuptree
+          mkdir -p /tmp/slurm-build
+
+      - name: Download official Slurm release tarball
+        env:
+          SLURM_VERSION: ${{ inputs.slurm_version }}
+        run: |
+          set -euxo pipefail
+          tag="slurm-${SLURM_VERSION//./-}-1"
+          url="https://github.com/SchedMD/slurm/releases/download/${tag}/slurm-${SLURM_VERSION}.tar.bz2"
+
+          echo "Downloading ${url}"
+          curl -fL "$url" -o "/tmp/slurm-build/slurm-${SLURM_VERSION}.tar.bz2"
+
+      - name: Build RPMs
+        env:
+          SLURM_VERSION: ${{ inputs.slurm_version }}
+        run: |
+          set -euxo pipefail
+          rpmbuild -ta "/tmp/slurm-build/slurm-${SLURM_VERSION}.tar.bz2"
+
+      - name: Collect RPMs
+        env:
+          SLURM_VERSION: ${{ inputs.slurm_version }}
+        run: |
+          set -euxo pipefail
+          mkdir -p "/tmp/artifacts/slurm-${SLURM_VERSION}"
+
+          cp -v ~/rpmbuild/RPMS/*/*.rpm "/tmp/artifacts/slurm-${SLURM_VERSION}/" || true
+          cp -v ~/rpmbuild/SRPMS/*.rpm "/tmp/artifacts/slurm-${SLURM_VERSION}/" || true
+
+          cd "/tmp/artifacts/slurm-${SLURM_VERSION}"
+          sha256sum *.rpm > SHA256SUMS
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: slurm-${{ inputs.slurm_version }}-rocky9-rpms
+          path: /tmp/artifacts/slurm-${{ inputs.slurm_version }}/
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: slurm-${{ inputs.slurm_version }}-rocky9
+          name: "Slurm ${{ inputs.slurm_version }} RPMs for Rocky 9"
+          files: /tmp/artifacts/slurm-${{ inputs.slurm_version }}/*
