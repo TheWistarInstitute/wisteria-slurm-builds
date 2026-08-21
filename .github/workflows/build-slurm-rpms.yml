@@ -62,7 +62,6 @@ jobs:
           dnf -y install \
             rpm-build \
             createrepo_c \
-            curl \
             wget \
             git \
             tar \
