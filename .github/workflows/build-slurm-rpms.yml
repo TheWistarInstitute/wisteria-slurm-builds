@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build-rocky9:
     name: Build Slurm ${{ inputs.slurm_version }} RPMs for Rocky 9
@@ -18,6 +22,9 @@ jobs:
 
     container:
       image: rockylinux:9
+
+    env:
+      SLURM_VERSION: ${{ inputs.slurm_version }}
 
     steps:
       - name: Show build environment
@@ -27,8 +34,6 @@ jobs:
           uname -a
 
       - name: Define Slurm release variables
-        env:
-          SLURM_VERSION: ${{ inputs.slurm_version }}
         run: |
           set -euxo pipefail
 
@@ -42,6 +47,7 @@ jobs:
             echo "SLURM_TARBALL=${slurm_tarball}"
             echo "SLURM_URL=${slurm_url}"
             echo "ARTIFACT_DIR=${artifact_dir}"
+            echo "SLURM_SOURCE_DIR=/tmp/slurm-build/slurm-${SLURM_VERSION}"
           } >> "$GITHUB_ENV"
 
           echo "Slurm version: ${SLURM_VERSION}"
@@ -61,7 +67,9 @@ jobs:
 
           dnf -y install \
             rpm-build \
+            rpmdevtools \
             createrepo_c \
+            curl \
             wget \
             git \
             tar \
@@ -87,13 +95,23 @@ jobs:
 
           test -s "/tmp/slurm-build/${SLURM_TARBALL}"
 
+      - name: Extract Slurm source tarball
+        run: |
+          set -euxo pipefail
+
+          tar -xjf "/tmp/slurm-build/${SLURM_TARBALL}" -C /tmp/slurm-build
+
+          test -f "${SLURM_SOURCE_DIR}/slurm.spec"
+
+          echo "Found Slurm spec:"
+          ls -lh "${SLURM_SOURCE_DIR}/slurm.spec"
+
       - name: Install Slurm RPM build dependencies
         run: |
           set -euxo pipefail
 
-          # dnf builddep reads the BuildRequires from Slurm's RPM spec.
-          # This avoids hand-maintaining a brittle dependency list.
-          dnf -y builddep "/tmp/slurm-build/${SLURM_TARBALL}"
+          # dnf builddep reads BuildRequires from Slurm's RPM spec.
+          dnf -y builddep "${SLURM_SOURCE_DIR}/slurm.spec"
 
       - name: Build Slurm RPMs
         run: |
