@@ -47,7 +47,8 @@ jobs:
 
       - name: Prepare rpmbuild tree
         run: |
-          rpmdev-setuptree
+          set -euxo pipefail
+          mkdir -p "$HOME/rpmbuild"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
           mkdir -p /tmp/slurm-build
 
       - name: Download official Slurm release tarball
