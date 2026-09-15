@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       slurm_version:
-        description: "Slurm version to build, e.g. 26.05.3"
+        description: "Slurm version to build, e.g. 26.05.4"
         required: true
         type: string
 
@@ -25,9 +25,10 @@ jobs:
 
     env:
       SLURM_VERSION: ${{ inputs.slurm_version }}
+      SLURM_RPMBUILD_WITH: "--with cgroupv2"
 
     steps:
-      - name: Show build environment
+      - name: Show build environment before update
         run: |
           set -euxo pipefail
           cat /etc/os-release
@@ -38,11 +39,12 @@ jobs:
           set -euxo pipefail
           dnf -y update
 
-      - name: Show build environment
+      - name: Show build environment after update
         run: |
           set -euxo pipefail
           cat /etc/os-release
           uname -a
+          rpm -q rocky-release
 
       - name: Define Slurm release variables
         run: |
@@ -64,6 +66,7 @@ jobs:
           echo "Slurm version: ${SLURM_VERSION}"
           echo "Slurm tag:     ${slurm_tag}"
           echo "Slurm URL:     ${slurm_url}"
+          echo "RPM build opts: ${SLURM_RPMBUILD_WITH}"
 
       - name: Install base build tooling
         run: |
@@ -87,7 +90,8 @@ jobs:
             xz \
             gzip \
             findutils \
-            which
+            which \
+            dbus-devel
 
       - name: Prepare rpmbuild tree
         run: |
@@ -101,41 +105,60 @@ jobs:
           set -euxo pipefail
 
           echo "Downloading ${SLURM_URL}"
-          curl -fL "$SLURM_URL" -o "/tmp/slurm-build/${SLURM_TARBALL}"
+
+          if command -v curl >/dev/null 2>&1; then
+            curl -fL "$SLURM_URL" -o "/tmp/slurm-build/${SLURM_TARBALL}"
+          else
+            wget -O "/tmp/slurm-build/${SLURM_TARBALL}" "$SLURM_URL"
+          fi
 
           test -s "/tmp/slurm-build/${SLURM_TARBALL}"
 
       - name: Extract Slurm source tarball
         run: |
           set -euxo pipefail
+
           tar -xjf "/tmp/slurm-build/${SLURM_TARBALL}" -C /tmp/slurm-build
+
           test -f "${SLURM_SOURCE_DIR}/slurm.spec"
+
           echo "Found Slurm spec:"
           ls -lh "${SLURM_SOURCE_DIR}/slurm.spec"
+
+          echo "Checking cgroupv2 support in spec:"
+          grep -n "cgroupv2" "${SLURM_SOURCE_DIR}/slurm.spec"
 
       - name: Install Slurm RPM build dependencies
         run: |
           set -euxo pipefail
+
           # dnf builddep reads BuildRequires from Slurm's RPM spec.
+          # Conditional BuildRequires for --with cgroupv2 may not be picked up
+          # unless the macro is active, so dbus-devel is installed explicitly above.
           dnf -y builddep "${SLURM_SOURCE_DIR}/slurm.spec"
 
-      - name: Build Slurm RPMs
+      - name: Build Slurm RPMs with cgroupv2 support
         run: |
           set -euxo pipefail
-          rpmbuild -ta "/tmp/slurm-build/${SLURM_TARBALL}"
+
+          rpmbuild ${SLURM_RPMBUILD_WITH} -ta "/tmp/slurm-build/${SLURM_TARBALL}"
 
       - name: Collect RPM artifacts
         run: |
           set -euxo pipefail
+
           mkdir -p "$ARTIFACT_DIR"
+
           find "$HOME/rpmbuild/RPMS" -type f -name "*.rpm" -exec cp -v {} "$ARTIFACT_DIR/" \;
           find "$HOME/rpmbuild/SRPMS" -type f -name "*.rpm" -exec cp -v {} "$ARTIFACT_DIR/" \;
+
           cd "$ARTIFACT_DIR"
 
           if ! ls *.rpm >/dev/null 2>&1; then
             echo "No RPMs were produced."
             exit 1
           fi
+
           sha256sum *.rpm > SHA256SUMS
 
           echo "Built RPMs:"
@@ -160,6 +183,9 @@ jobs:
           name: "Slurm ${{ inputs.slurm_version }} RPMs for Rocky 9"
           body: |
             Slurm ${{ inputs.slurm_version }} RPMs built for Rocky Linux 9.
+
+            Build options:
+            - --with cgroupv2
 
             Source tarball:
             ${{ env.SLURM_URL }}
