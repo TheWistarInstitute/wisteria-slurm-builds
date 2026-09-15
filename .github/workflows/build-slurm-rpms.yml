@@ -108,43 +108,34 @@ jobs:
       - name: Extract Slurm source tarball
         run: |
           set -euxo pipefail
-
           tar -xjf "/tmp/slurm-build/${SLURM_TARBALL}" -C /tmp/slurm-build
-
           test -f "${SLURM_SOURCE_DIR}/slurm.spec"
-
           echo "Found Slurm spec:"
           ls -lh "${SLURM_SOURCE_DIR}/slurm.spec"
 
       - name: Install Slurm RPM build dependencies
         run: |
           set -euxo pipefail
-
           # dnf builddep reads BuildRequires from Slurm's RPM spec.
           dnf -y builddep "${SLURM_SOURCE_DIR}/slurm.spec"
 
       - name: Build Slurm RPMs
         run: |
           set -euxo pipefail
-
           rpmbuild -ta "/tmp/slurm-build/${SLURM_TARBALL}"
 
       - name: Collect RPM artifacts
         run: |
           set -euxo pipefail
-
           mkdir -p "$ARTIFACT_DIR"
-
           find "$HOME/rpmbuild/RPMS" -type f -name "*.rpm" -exec cp -v {} "$ARTIFACT_DIR/" \;
           find "$HOME/rpmbuild/SRPMS" -type f -name "*.rpm" -exec cp -v {} "$ARTIFACT_DIR/" \;
-
           cd "$ARTIFACT_DIR"
 
           if ! ls *.rpm >/dev/null 2>&1; then
             echo "No RPMs were produced."
             exit 1
           fi
-
           sha256sum *.rpm > SHA256SUMS
 
           echo "Built RPMs:"
